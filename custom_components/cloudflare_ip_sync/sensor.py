@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.core import HomeAssistant
@@ -30,7 +30,6 @@ class CloudflareSyncStatusSensor(CloudflareIpSyncEntity, SensorEntity):
 
     _attr_translation_key = "sync_status"
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options: ClassVar[list[str]] = [SYNC_STATUS_IN_SYNC, SYNC_STATUS_OUT_OF_SYNC]
 
     def __init__(self, coordinator: CloudflareIpSyncCoordinator) -> None:
         """Derive this sensor's unique id from the owning config entry."""
@@ -38,6 +37,7 @@ class CloudflareSyncStatusSensor(CloudflareIpSyncEntity, SensorEntity):
         entry = coordinator.config_entry
         assert entry is not None
         self._attr_unique_id = f"{entry.entry_id}_sync_status"
+        self._attr_options = [SYNC_STATUS_IN_SYNC, SYNC_STATUS_OUT_OF_SYNC]
 
     @property
     def native_value(self) -> str | None:

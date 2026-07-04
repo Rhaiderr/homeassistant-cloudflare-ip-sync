@@ -367,7 +367,9 @@ class CloudflareClient:
         """Return the ``result`` list, or raise if it is missing/typed wrong."""
         result = payload.get("result")
         if not isinstance(result, list):
-            raise CloudflareResultError("Cloudflare response is missing a 'result' list")
+            raise CloudflareResultError(
+                "Cloudflare response is missing a 'result' list"
+            )
         return result
 
     @staticmethod
