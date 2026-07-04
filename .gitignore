@@ -25,6 +25,9 @@ env/
 .idea/
 .DS_Store
 
+# Claude Code local settings (may hold machine-specific paths; never commit)
+.claude/
+
 # Home Assistant test artifacts
 .storage/
 config/
