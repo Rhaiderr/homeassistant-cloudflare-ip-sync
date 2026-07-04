@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 import ipaddress
 import logging
 
@@ -36,6 +36,7 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
 )
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import (
     CloudflareAuthError,
@@ -78,6 +79,7 @@ class SyncState:
     local_ip: str | None
     cloudflare_ips: list[str]
     in_sync: bool
+    last_synced: datetime | None = None
     last_error: str | None = None
 
 
@@ -123,6 +125,7 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
             CONF_MAX_RETRIES, DEFAULT_MAX_RETRIES
         )
         self._notification_id = f"{DOMAIN}_{entry.entry_id}_sync_failed"
+        self._last_synced: datetime | None = None
 
     @callback
     def async_setup_listeners(self) -> None:
@@ -149,6 +152,8 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
         failure is surfaced via ``last_error`` rather than raising
         ``UpdateFailed``, since the Cloudflare list itself was still read
         successfully and entities should stay available to show "out of sync".
+        ``last_synced`` tracks the most recent time the list was confirmed to
+        match the source IP, persisting across calls that don't (re)sync.
         """
         local_ip = self._read_source_ip()
         try:
@@ -169,10 +174,22 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
             cloudflare_ips,
             in_sync,
         )
-        if in_sync or local_ip is None:
+        if in_sync:
+            self._async_clear_sync_failure()
+            self._last_synced = dt_util.utcnow()
+            return SyncState(
+                local_ip=local_ip,
+                cloudflare_ips=cloudflare_ips,
+                in_sync=True,
+                last_synced=self._last_synced,
+            )
+        if local_ip is None:
             self._async_clear_sync_failure()
             return SyncState(
-                local_ip=local_ip, cloudflare_ips=cloudflare_ips, in_sync=in_sync
+                local_ip=local_ip,
+                cloudflare_ips=cloudflare_ips,
+                in_sync=False,
+                last_synced=self._last_synced,
             )
 
         try:
@@ -191,11 +208,18 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
                 local_ip=local_ip,
                 cloudflare_ips=cloudflare_ips,
                 in_sync=False,
+                last_synced=self._last_synced,
                 last_error=str(err),
             )
 
         self._async_clear_sync_failure()
-        return SyncState(local_ip=local_ip, cloudflare_ips=cloudflare_ips, in_sync=True)
+        self._last_synced = dt_util.utcnow()
+        return SyncState(
+            local_ip=local_ip,
+            cloudflare_ips=cloudflare_ips,
+            in_sync=True,
+            last_synced=self._last_synced,
+        )
 
     async def _async_sync_with_retry(self, local_ip: str) -> list[str]:
         """Replace and verify the Rule List, retrying with backoff.

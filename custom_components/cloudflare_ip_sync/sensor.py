@@ -56,5 +56,6 @@ class CloudflareSyncStatusSensor(CloudflareIpSyncEntity, SensorEntity):
         return {
             "local_ip": data.local_ip,
             "cloudflare_ips": data.cloudflare_ips,
+            "last_synced": data.last_synced,
             "last_error": data.last_error,
         }
