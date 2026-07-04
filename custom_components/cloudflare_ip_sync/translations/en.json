@@ -80,5 +80,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "rule_list_missing": {
+      "title": "Cloudflare Rule List no longer exists",
+      "description": "The Rule List \"{list_name}\" could not be found in your Cloudflare account anymore. It may have been deleted, or the API token lost access to it. Remove and reconfigure this integration, pointing it at an existing Rule List, to resume syncing."
+    }
   }
 }
