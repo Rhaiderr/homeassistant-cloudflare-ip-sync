@@ -1,0 +1,73 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Cloudflare API token",
+        "description": "Enter a Cloudflare API token with permission to read and edit Account Rule Lists.",
+        "data": {
+          "api_token": "API token"
+        }
+      },
+      "account": {
+        "title": "Cloudflare account",
+        "description": "Select the account that owns the Rule List you want to keep in sync.",
+        "data": {
+          "account_id": "Account"
+        }
+      },
+      "rule_list": {
+        "title": "Rule List",
+        "description": "Select the IP Rule List that should always contain your current public IP.",
+        "data": {
+          "list_id": "Rule List"
+        }
+      },
+      "entity": {
+        "title": "Source entity",
+        "description": "Select the Home Assistant entity whose state holds your public IP address.",
+        "data": {
+          "source_entity_id": "IP entity"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Cloudflare",
+        "description": "The stored API token is no longer valid. Enter a new token to continue.",
+        "data": {
+          "api_token": "API token"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The API token was rejected or lacks the required permissions.",
+      "cannot_connect": "Could not reach Cloudflare. Check your network and try again.",
+      "rate_limit": "Cloudflare rate limit reached. Wait a moment and try again.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This Rule List is already configured.",
+      "no_accounts": "The token cannot access any Cloudflare accounts.",
+      "no_rule_lists": "No IP Rule Lists were found in this account.",
+      "no_ip_entities": "No Home Assistant entity currently holds an IP address.",
+      "cannot_connect": "Could not reach Cloudflare. Check your network and try again.",
+      "invalid_auth": "The API token was rejected or lacks the required permissions.",
+      "rate_limit": "Cloudflare rate limit reached. Wait a moment and try again.",
+      "unknown": "An unexpected error occurred.",
+      "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Sync options",
+        "data": {
+          "max_retries": "Maximum sync retries",
+          "reconcile_interval": "Reconciliation interval (minutes)"
+        },
+        "data_description": {
+          "max_retries": "How many times to retry a failed synchronization before giving up.",
+          "reconcile_interval": "How often to re-check Cloudflare against the source entity as a safety net."
+        }
+      }
+    }
+  }
+}
