@@ -41,7 +41,7 @@ client is kept free of Home Assistant internals.
 
 ## Requirements
 
-- **Home Assistant 2026.7 or newer**
+- **Home Assistant 2026.6 or newer**
 - A **Cloudflare account**
 - A **Cloudflare API token** with permission to read and edit Account Rule Lists (see below)
 - An **existing Cloudflare Rule List** of kind *IP* to sync into
