@@ -11,8 +11,7 @@ from .api import CloudflareClient
 from .const import CONF_API_TOKEN
 from .coordinator import CloudflareIpSyncCoordinator
 
-# Entity platforms are added in a later milestone.
-PLATFORMS: list[Platform] = []
+PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 type CloudflareIpSyncConfigEntry = ConfigEntry[CloudflareIpSyncCoordinator]
 
@@ -30,8 +29,7 @@ async def async_setup_entry(
     entry.runtime_data = coordinator
     coordinator.async_setup_listeners()
 
-    if PLATFORMS:
-        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
 
@@ -40,9 +38,7 @@ async def async_unload_entry(
     hass: HomeAssistant, entry: CloudflareIpSyncConfigEntry
 ) -> bool:
     """Unload a config entry and its platforms."""
-    if PLATFORMS:
-        return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    return True
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
 async def _async_update_listener(

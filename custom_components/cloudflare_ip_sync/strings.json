@@ -69,5 +69,16 @@
         }
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "sync_status": {
+        "name": "Sync status",
+        "state": {
+          "in_sync": "In sync",
+          "out_of_sync": "Out of sync"
+        }
+      }
+    }
   }
 }
