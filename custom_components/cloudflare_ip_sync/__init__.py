@@ -5,15 +5,20 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
 from .api import CloudflareClient
-from .const import CONF_API_TOKEN
+from .const import CONF_API_TOKEN, DOMAIN
 from .coordinator import CloudflareIpSyncCoordinator
 from .services import async_setup_services
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
+
+# This integration is configured entirely via config entries (no YAML); the
+# async_setup below only registers shared services.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 type CloudflareIpSyncConfigEntry = ConfigEntry[CloudflareIpSyncCoordinator]
 
