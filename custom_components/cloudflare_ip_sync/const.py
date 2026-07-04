@@ -28,3 +28,16 @@ CONF_MAX_RETRIES: Final = "max_retries"
 CONF_RECONCILE_INTERVAL: Final = "reconcile_interval"
 DEFAULT_MAX_RETRIES: Final = 5
 DEFAULT_RECONCILE_INTERVAL: Final = 30  # minutes
+
+# Comment attached to the Rule List item this integration writes, so it's
+# recognizable in the Cloudflare dashboard.
+LIST_ITEM_COMMENT: Final = "Managed by Home Assistant (cloudflare_ip_sync)"
+
+# Seconds between polls of an in-progress Cloudflare bulk operation, and the
+# overall budget before giving up on a single sync attempt.
+BULK_OPERATION_POLL_INTERVAL: Final = 2
+BULK_OPERATION_TIMEOUT: Final = 30
+
+# Exponential backoff between failed sync attempts (replace + verify).
+SYNC_INITIAL_BACKOFF: Final = 5
+SYNC_MAX_BACKOFF: Final = 60
