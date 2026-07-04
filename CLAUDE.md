@@ -74,7 +74,7 @@ Feature set (per README / kickoff spec):
 - Home Assistant Quality Scale compliance, full typing, Ruff/mypy-clean, pytest coverage
 - HACS-installable
 
-Target platform: Home Assistant 2026.7+. Requires a Cloudflare account, API token, and an
+Target platform: Home Assistant 2026.6+. Requires a Cloudflare account, API token, and an
 existing Cloudflare Rule List to sync into. GitHub repo: `Rhaiderr/homeassistant-cloudflare-ip-sync`.
 
 ## Conventions in use
