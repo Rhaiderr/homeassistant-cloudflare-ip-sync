@@ -1,0 +1,13 @@
+{
+  "domain": "cloudflare_ip_sync",
+  "name": "Cloudflare Dynamic IP Sync",
+  "version": "0.1.0",
+  "codeowners": ["@Rhaiderr"],
+  "config_flow": true,
+  "documentation": "https://github.com/Rhaiderr/homeassistant-cloudflare-ip-sync",
+  "integration_type": "service",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/Rhaiderr/homeassistant-cloudflare-ip-sync/issues",
+  "quality_scale": "bronze",
+  "requirements": []
+}
