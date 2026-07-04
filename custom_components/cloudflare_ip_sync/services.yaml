@@ -1,0 +1,15 @@
+force_sync:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: cloudflare_ip_sync
+
+reload:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: cloudflare_ip_sync

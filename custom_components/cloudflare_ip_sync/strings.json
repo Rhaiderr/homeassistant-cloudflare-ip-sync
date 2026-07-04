@@ -86,5 +86,27 @@
       "title": "Cloudflare Rule List no longer exists",
       "description": "The Rule List \"{list_name}\" could not be found in your Cloudflare account anymore. It may have been deleted, or the API token lost access to it. Remove and reconfigure this integration, pointing it at an existing Rule List, to resume syncing."
     }
+  },
+  "services": {
+    "force_sync": {
+      "name": "Force sync",
+      "description": "Immediately reconciles the Cloudflare Rule List with the source IP entity, without waiting for the next scheduled check.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Cloudflare IP Sync entry",
+          "description": "Which configured Cloudflare IP Sync instance to sync."
+        }
+      }
+    },
+    "reload": {
+      "name": "Reload",
+      "description": "Reloads a Cloudflare IP Sync config entry, equivalent to reloading it from Settings > Devices & Services.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Cloudflare IP Sync entry",
+          "description": "Which configured Cloudflare IP Sync instance to reload."
+        }
+      }
+    }
   }
 }

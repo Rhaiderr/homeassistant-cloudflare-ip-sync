@@ -6,14 +6,22 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.typing import ConfigType
 
 from .api import CloudflareClient
 from .const import CONF_API_TOKEN
 from .coordinator import CloudflareIpSyncCoordinator
+from .services import async_setup_services
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 type CloudflareIpSyncConfigEntry = ConfigEntry[CloudflareIpSyncCoordinator]
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register services shared by every Cloudflare IP Sync config entry."""
+    async_setup_services(hass)
+    return True
 
 
 async def async_setup_entry(
