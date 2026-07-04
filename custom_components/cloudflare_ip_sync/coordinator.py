@@ -7,7 +7,12 @@ bulk operation, and re-reads the list to verify the write actually took. A
 failed attempt (replace, bulk operation, or verification) is retried with
 exponential backoff up to a configurable maximum; if every attempt is
 exhausted, a persistent notification is raised and the failure is recorded on
-the coordinator's data for later milestones (sensors, diagnostics) to surface.
+the coordinator's data (sensors, diagnostics surface it from there).
+
+A separate, structural failure mode -- the configured Rule List no longer
+existing in the Cloudflare account -- is handled differently: it raises a
+Repair issue instead, since retrying or notifying won't help; the user needs
+to reconfigure the integration.
 
 The trigger model is hybrid:
 
@@ -30,6 +35,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import (
     EventStateChangedData,
@@ -39,6 +45,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import (
+    CloudflareApiError,
     CloudflareAuthError,
     CloudflareClient,
     CloudflareError,
@@ -66,6 +73,10 @@ _LOGGER = logging.getLogger(__name__)
 SYNC_DEBOUNCE_SECONDS = 5.0
 
 _UNAVAILABLE_STATES = (STATE_UNAVAILABLE, STATE_UNKNOWN, "")
+
+# Repair issue raised when the configured Rule List can no longer be found in
+# the Cloudflare account (as opposed to a transient read/write failure).
+ISSUE_RULE_LIST_MISSING = "rule_list_missing"
 
 
 class _SyncVerificationFailed(Exception):
@@ -125,6 +136,9 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
             CONF_MAX_RETRIES, DEFAULT_MAX_RETRIES
         )
         self._notification_id = f"{DOMAIN}_{entry.entry_id}_sync_failed"
+        self._rule_list_missing_issue_id = (
+            f"{DOMAIN}_{entry.entry_id}_{ISSUE_RULE_LIST_MISSING}"
+        )
         self._last_synced: datetime | None = None
 
     @callback
@@ -162,9 +176,16 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
             )
         except CloudflareAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
+        except CloudflareApiError as err:
+            if await self._async_is_rule_list_missing():
+                self._async_raise_rule_list_missing_issue()
+            else:
+                self._async_clear_rule_list_missing_issue()
+            raise UpdateFailed(str(err)) from err
         except CloudflareError as err:
             raise UpdateFailed(str(err)) from err
 
+        self._async_clear_rule_list_missing_issue()
         cloudflare_ips = [item.ip for item in items]
         in_sync = self._is_in_sync(local_ip, cloudflare_ips)
         _LOGGER.debug(
@@ -305,6 +326,39 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
     def _async_clear_sync_failure(self) -> None:
         """Dismiss any previously raised sync-failure notification."""
         persistent_notification.async_dismiss(self.hass, self._notification_id)
+
+    async def _async_is_rule_list_missing(self) -> bool:
+        """Check whether the configured Rule List still exists in the account.
+
+        Used to tell a structural problem (the list was deleted, or the token
+        lost access to it) apart from a transient read failure -- only the
+        former is worth raising a Repair issue over. If this check itself
+        fails, we can't confirm anything, so we conservatively assume the
+        list is still there and let the ordinary UpdateFailed handle it.
+        """
+        try:
+            rule_lists = await self.client.async_get_rule_lists(self._account_id)
+        except CloudflareError:
+            return False
+        return not any(rule.id == self._list_id for rule in rule_lists)
+
+    def _async_raise_rule_list_missing_issue(self) -> None:
+        """Raise a Repair issue pointing the user at reconfiguring the entry."""
+        entry = self.config_entry
+        assert entry is not None
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            self._rule_list_missing_issue_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key=ISSUE_RULE_LIST_MISSING,
+            translation_placeholders={"list_name": entry.title},
+        )
+
+    def _async_clear_rule_list_missing_issue(self) -> None:
+        """Dismiss the Rule-List-missing Repair issue if one was raised."""
+        ir.async_delete_issue(self.hass, DOMAIN, self._rule_list_missing_issue_id)
 
     def _read_source_ip(self) -> str | None:
         """Return the source entity's state if it is a valid IP address."""
