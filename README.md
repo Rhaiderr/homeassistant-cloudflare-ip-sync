@@ -57,11 +57,20 @@ client is kept free of Home Assistant internals.
 1. In the Cloudflare dashboard, go to **My Profile → API Tokens → Create Token → Create Custom
    Token**.
 2. Give it a name (e.g. `home-assistant-ip-sync`).
-3. Add the permission **Account → Account Filter Lists → Edit** (this is what Cloudflare calls
-   Rule Lists).
+3. Add **both** permissions:
+   - **Account → Account Filter Lists → Edit** — reads and writes the Rule List itself.
+   - **Account → Account Settings → Read** — required for the setup flow to list your
+     accounts; without it, the token validates but the account step fails.
 4. Under **Account Resources**, scope it to the account that owns your Rule List.
-5. Create the token and copy it — you'll paste it into the config flow. Home Assistant stores it
+5. Leave **Client IP Address Filtering** empty — your public IP rotates (that's the whole
+   point of this integration), so an IP-restricted token would break on the first change.
+6. Create the token and copy it — you'll paste it into the config flow. Home Assistant stores it
    in the config entry; it is never written to YAML, logs, or diagnostics.
+
+> **Account-owned tokens also work.** Tokens created under **Manage Account → API Tokens**
+> (prefix `cfat_`) are supported too, with the same two permissions. Cloudflare rejects them on
+> its user-token verify endpoint, so the setup flow validates them by listing your accounts
+> instead — you don't need to do anything different.
 
 ---
 
@@ -183,6 +192,8 @@ logger:
 
 - **`invalid_auth` during setup** — the token is wrong, inactive, or missing the *Account
   Filter Lists → Edit* permission.
+- **Token validates but the account step fails (or shows no accounts)** — the token is missing
+  the *Account Settings → Read* permission, which the setup flow needs to list your accounts.
 - **No Rule Lists to choose from** — the account has no *IP*-kind Rule Lists; create one in the
   Cloudflare dashboard first.
 - **No entities to choose from** — no entity's state currently looks like an IP address; make
