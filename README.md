@@ -67,6 +67,11 @@ client is kept free of Home Assistant internals.
 6. Create the token and copy it — you'll paste it into the config flow. Home Assistant stores it
    in the config entry; it is never written to YAML, logs, or diagnostics.
 
+> **Account-owned tokens also work.** Tokens created under **Manage Account → API Tokens**
+> (prefix `cfat_`) are supported too, with the same two permissions. Cloudflare rejects them on
+> its user-token verify endpoint, so the setup flow validates them by listing your accounts
+> instead — you don't need to do anything different.
+
 ---
 
 ## Installation
