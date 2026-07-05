@@ -1,6 +1,6 @@
 [project]
 name = "cloudflare_ip_sync"
-version = "0.1.0"
+version = "1.0.0"
 description = "Home Assistant custom integration that syncs a public IP entity into a Cloudflare Rule List."
 readme = "README.md"
 requires-python = ">=3.13"

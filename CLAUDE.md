@@ -4,49 +4,41 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Implementation is underway, built as a sequence of milestone branches (each merged to `main`
-via its own PR). Current state (2026-07-04, branch `milestone-5-coordinator`):
+**v1.0.0 — all 14 milestones complete** (2026-07-04). Built as a sequence of milestone
+branches, each merged to `main` via its own PR:
 
-- **Milestone 1** — repository structure and tooling
-- **Milestone 2** — integration manifest (`manifest.json`, domain `cloudflare_ip_sync`)
-- **Milestone 3** — Cloudflare API client (`api.py`): token verify, accounts, rule lists,
-  list items (paginated), replace-items (async bulk op), bulk-operation polling. HA-free,
-  unit-testable, exceptions as a `CloudflareError` hierarchy (`CloudflareAuthError`,
-  `CloudflareConnectionError`, `CloudflareRateLimitError`, `CloudflareApiError`,
-  `CloudflareResultError`).
-- **Milestone 4** — config flow (`config_flow.py`): 4-step UI setup (token → account →
-  rule list → source entity), options flow (max retries, reconcile interval), reauth flow.
-- **Milestone 5** (current HEAD) — coordinator and entry wiring (`coordinator.py`,
-  `__init__.py`): `CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState])` does
-  **read-only** reconciliation — reads the source entity's IP and the Cloudflare list,
-  compares them (normalized via `ipaddress`), and reports `in_sync`. Triggered by both a
-  debounced state-change listener on the source entity and a periodic `update_interval`.
-  The write path (actually calling `async_replace_list_items` + polling the bulk operation
-  + retry/backoff) is explicitly deferred — not yet implemented.
+1. Repository structure and tooling
+2. Integration manifest (`manifest.json`, domain `cloudflare_ip_sync`)
+3. Cloudflare API client (`api.py`) — HA-free, unit-testable; token verify, accounts, rule
+   lists, list items (paginated), replace-items (async bulk op), bulk-operation polling;
+   `CloudflareError` exception hierarchy.
+4. Config flow (`config_flow.py`) — 4-step UI setup (token → account → rule list → source
+   entity), options flow (max retries, reconcile interval), reauth flow. Accepts both user
+   API tokens and account-owned tokens (`cfat_`; verify-endpoint rejection falls back to
+   listing accounts — see `_async_validate_token`).
+5. Coordinator (`coordinator.py`, `__init__.py`) — `DataUpdateCoordinator[SyncState]`,
+   debounced state-change listener + periodic reconcile.
+6. Synchronization write path — replace items, poll bulk op, verify by re-read, exponential
+   backoff up to `CONF_MAX_RETRIES`; on exhaustion: persistent notification (auto-dismissed
+   on recovery) + `SyncState.last_error`. Sync failure does NOT raise `UpdateFailed` —
+   entities stay available showing "out of sync".
+7. Entities — `entity.py` base + `sensor.py` enum sensor (`in_sync`/`out_of_sync`) with
+   local_ip/cloudflare_ips/last_synced/last_error attributes.
+8. Diagnostics — token redacted via `async_redact_data`.
+9. Repairs — non-fixable issue when the Rule List vanished from the account (confirmed via
+   `async_get_rule_lists` on a non-auth read error); no `repairs.py` needed.
+10. Services — `force_sync` / `reload`, both keyed by `config_entry_id`.
+11. Tests — 41 tests, ~93% coverage (`pytest-homeassistant-custom-component`, `aioresponses`);
+    install dev deps with `uv pip install -e ".[test]"`.
+12. Documentation — full README (Cloudflare setup walkthrough, token permissions, custom
+    IP-entity guide, troubleshooting) + MIT LICENSE.
+13. HACS packaging — `hacs.json`, validate workflow (hacs/action + hassfest) on every PR.
+14. Release v1.0.0 — validated end-to-end on a real HA instance (Raspberry Pi 5) against the
+    live Cloudflare API, including the write path.
 
-The full plan is 14 milestones (renumbered slightly from the original kickoff spec, since the
-implementation merged "entity discovery" into the config-flow milestone and moved the API
-client before the config flow):
-
-6. **Synchronization (write path) — next.** On mismatch: replace Rule List items, re-read and
-   verify, retry with exponential backoff up to `CONF_MAX_RETRIES` (already in `const.py`,
-   default 5); if still failing: persistent notification + error log + recorded last error.
-7. Entities — `entity.py` base class + `sensor.py` (stub docstrings confirm "Milestone 7").
-8. Diagnostics — `diagnostics.py` (stub confirms "Milestone 8"), token redaction.
-9. Repairs (HA's repair-issue framework — a hard requirement from the kickoff spec with no
-   dedicated slot in the original numbered list; presumed to land here, confirm with user).
-10. Services — `services.py`/`services.yaml` (stub confirms "Milestone 10"):
-    `cloudflare_ip_sync.force_sync`, `cloudflare_ip_sync.reload`.
-11. Tests (`pytest-homeassistant-custom-component` conventions).
-12. Documentation.
-13. HACS packaging.
-14. Release v1.0.0.
-
-`tests/` currently only has `tests/__init__.py` — no test suite has been written yet despite
-milestones 3-5 having real logic worth testing.
-
-Check the working tree / git log rather than trusting this file blindly — it will drift as
-milestones land.
+Post-1.0 direction: future Cloudflare modules (DNS, Tunnel, Access, Zero Trust, ...) — keep
+`api.py` free of Home Assistant imports so they can share it. Check the working tree / git
+log rather than trusting this file blindly — it drifts.
 
 ## What this project is
 
