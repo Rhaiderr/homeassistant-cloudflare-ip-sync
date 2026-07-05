@@ -48,29 +48,105 @@ client is kept free of Home Assistant internals.
 - A **Home Assistant entity** whose state is your current public IPv4/IPv6 address
 
 > This integration does **not** create the Rule List or the WAF rule for you — create those in
-> the Cloudflare dashboard first, then point the integration at the list.
+> the Cloudflare dashboard first, then point the integration at the list. The next sections
+> walk through every piece.
 
 ---
 
-## Creating the Cloudflare API token
+## Cloudflare setup, step by step
+
+### 1. Create the Rule List
+
+The Rule List is the container this integration keeps updated with your IP.
+
+1. In the [Cloudflare dashboard](https://dash.cloudflare.com/), select your **account**
+   (not a specific site/zone).
+2. In the left sidebar, go to **Manage Account → Configurations → Lists**.
+3. Click **Create new list**:
+   - **Name**: e.g. `casa` (you'll reference it in rules as `$casa`; letters, numbers and
+     underscore only).
+   - **Content type**: **IP addresses** — this is required; the integration only offers
+     IP-kind lists during setup.
+4. Click **Create**. You can leave it empty or add your current IP — the first sync will
+   overwrite the items either way.
+
+<!-- screenshot: docs/images/create-list.png -->
+
+### 2. Use the list in a WAF rule (example)
+
+This is the typical use — only allow your home IP through a Cloudflare Tunnel:
+
+1. Open the **site/zone** you protect, then **Security → WAF → Custom rules → Create rule**.
+2. Name it (e.g. `only-home`), and under **When incoming requests match**, use the expression
+   editor:
+
+   ```
+   not ip.src in $casa
+   ```
+
+3. Set the action to **Block** and deploy.
+
+Traffic is now blocked unless it comes from an IP inside `casa` — which this integration keeps
+pointed at your home. The same list can also be referenced in Zero Trust / Access policies.
+
+<!-- screenshot: docs/images/waf-rule.png -->
+
+### 3. Create the API token
 
 1. In the Cloudflare dashboard, go to **My Profile → API Tokens → Create Token → Create Custom
-   Token**.
+   Token** (bottom of the page).
 2. Give it a name (e.g. `home-assistant-ip-sync`).
-3. Add **both** permissions:
-   - **Account → Account Filter Lists → Edit** — reads and writes the Rule List itself.
-   - **Account → Account Settings → Read** — required for the setup flow to list your
-     accounts; without it, the token validates but the account step fails.
-4. Under **Account Resources**, scope it to the account that owns your Rule List.
+3. Add **both** permissions — the integration needs exactly these two, nothing more:
+
+   | Scope | Permission | Access |
+   | --- | --- | --- |
+   | Account | **Account Filter Lists** | **Edit** |
+   | Account | **Account Settings** | **Read** |
+
+   *Account Filter Lists → Edit* reads and writes the Rule List itself. *Account Settings →
+   Read* is required for the setup flow to list your accounts; without it, the token validates
+   but the account step fails.
+4. Under **Account Resources**, choose **Include → <the account that owns your Rule List>**.
 5. Leave **Client IP Address Filtering** empty — your public IP rotates (that's the whole
    point of this integration), so an IP-restricted token would break on the first change.
-6. Create the token and copy it — you'll paste it into the config flow. Home Assistant stores it
-   in the config entry; it is never written to YAML, logs, or diagnostics.
+6. **Continue to summary → Create Token**, then copy the value — you'll paste it into the
+   config flow. Home Assistant stores it in the config entry; it is never written to YAML,
+   logs, or diagnostics.
+
+<!-- screenshot: docs/images/create-token.png -->
 
 > **Account-owned tokens also work.** Tokens created under **Manage Account → API Tokens**
 > (prefix `cfat_`) are supported too, with the same two permissions. Cloudflare rejects them on
 > its user-token verify endpoint, so the setup flow validates them by listing your accounts
 > instead — you don't need to do anything different.
+
+### 4. Have a public IP entity in Home Assistant
+
+The integration needs a Home Assistant entity whose **state is your current public IP** — the
+setup flow lists every entity whose state parses as an IPv4/IPv6 address, wherever it comes
+from:
+
+- **Router integrations** — many expose an "external IP" sensor out of the box (TP-Link,
+  UniFi, FRITZ!Box, OPNsense, ...). E.g. a TP-Link Archer's `sensor.archer_be550_external_ip`.
+- **A custom sensor** — if your router doesn't provide one, create a
+  [REST sensor](https://www.home-assistant.io/integrations/rest/) that asks an external
+  service, in `configuration.yaml`:
+
+  ```yaml
+  sensor:
+    - platform: rest
+      name: Public IP
+      unique_id: public_ip
+      resource: https://api.ipify.org?format=json
+      value_template: "{{ value_json.ip }}"
+      scan_interval: 300
+  ```
+
+  (Any equivalent works too — a `command_line` sensor running `curl -s https://icanhazip.com`,
+  a template sensor, etc. The only contract is: the entity's state must be the bare IP.)
+
+Prefer a **local source** (your router) over an external service when available: it updates
+the moment the ISP rotates the IP, instead of on the next poll.
 
 ---
 
