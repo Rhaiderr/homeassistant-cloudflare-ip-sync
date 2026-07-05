@@ -24,6 +24,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import voluptuous as vol
 
 from .api import (
+    CloudflareApiError,
     CloudflareAuthError,
     CloudflareClient,
     CloudflareConnectionError,
@@ -63,6 +64,22 @@ def _error_key(err: CloudflareError) -> str:
     return "unknown"
 
 
+async def _async_validate_token(client: CloudflareClient) -> None:
+    """Check the token is usable, accepting both Cloudflare token types.
+
+    ``/user/tokens/verify`` only accepts *user* API tokens; account-owned
+    tokens (``cfat_...``) are rejected there even though they can call every
+    account-scoped endpoint this integration needs. When verify rejects the
+    token, fall back to listing accounts before giving up -- if that works,
+    the token is valid and active. Rate-limit and connection errors are left
+    to propagate so they map onto their own error keys.
+    """
+    try:
+        await client.async_verify_token()
+    except (CloudflareApiError, CloudflareAuthError):
+        await client.async_get_accounts()
+
+
 class CloudflareIpSyncConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the multi-step setup flow."""
 
@@ -82,7 +99,7 @@ class CloudflareIpSyncConfigFlow(ConfigFlow, domain=DOMAIN):
             token = user_input[CONF_API_TOKEN]
             client = self._client(token)
             try:
-                await client.async_verify_token()
+                await _async_validate_token(client)
             except CloudflareError as err:
                 errors["base"] = _error_key(err)
             else:
@@ -203,7 +220,7 @@ class CloudflareIpSyncConfigFlow(ConfigFlow, domain=DOMAIN):
             token = user_input[CONF_API_TOKEN]
             client = self._client(token)
             try:
-                await client.async_verify_token()
+                await _async_validate_token(client)
             except CloudflareError as err:
                 errors["base"] = _error_key(err)
             else:

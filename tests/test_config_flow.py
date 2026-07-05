@@ -11,6 +11,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.cloudflare_ip_sync.api import (
     CloudflareAccount,
+    CloudflareApiError,
     CloudflareAuthError,
     CloudflareRuleList,
     CloudflareTokenStatus,
@@ -84,6 +85,7 @@ async def test_invalid_token_shows_error(
 ) -> None:
     """A rejected token re-shows the first step with invalid_auth."""
     mock_client.async_verify_token.side_effect = CloudflareAuthError("nope")
+    mock_client.async_get_accounts.side_effect = CloudflareAuthError("nope")
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": SOURCE_USER}
@@ -93,6 +95,29 @@ async def test_invalid_token_shows_error(
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "invalid_auth"}
+
+
+async def test_account_owned_token_validates_via_accounts(
+    hass: HomeAssistant, mock_client: AsyncMock
+) -> None:
+    """Account-owned tokens (cfat_) fail /user/tokens/verify but still work.
+
+    Cloudflare rejects account-owned tokens on the user-scoped verify
+    endpoint; the flow must fall back to listing accounts and proceed.
+    """
+    _configure_happy_client(mock_client)
+    mock_client.async_verify_token.side_effect = CloudflareApiError(
+        "Invalid API Token", code=400
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_API_TOKEN: "cfat_account_owned"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "account"
 
 
 async def test_duplicate_rule_list_aborts(
