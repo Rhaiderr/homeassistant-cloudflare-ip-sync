@@ -70,8 +70,6 @@ The Rule List is the container this integration keeps updated with your IP.
 4. Click **Create**. You can leave it empty or add your current IP — the first sync will
    overwrite the items either way.
 
-<!-- screenshot: docs/images/create-list.png -->
-
 ### 2. Use the list in a WAF rule (example)
 
 This is the typical use — only allow your home IP through a Cloudflare Tunnel:
@@ -88,8 +86,6 @@ This is the typical use — only allow your home IP through a Cloudflare Tunnel:
 
 Traffic is now blocked unless it comes from an IP inside `casa` — which this integration keeps
 pointed at your home. The same list can also be referenced in Zero Trust / Access policies.
-
-<!-- screenshot: docs/images/waf-rule.png -->
 
 ### 3. Create the API token
 
@@ -112,8 +108,6 @@ pointed at your home. The same list can also be referenced in Zero Trust / Acces
 6. **Continue to summary → Create Token**, then copy the value — you'll paste it into the
    config flow. Home Assistant stores it in the config entry; it is never written to YAML,
    logs, or diagnostics.
-
-<!-- screenshot: docs/images/create-token.png -->
 
 > **Account-owned tokens also work.** Tokens created under **Manage Account → API Tokens**
 > (prefix `cfat_`) are supported too, with the same two permissions. Cloudflare rejects them on
