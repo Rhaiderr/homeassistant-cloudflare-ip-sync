@@ -41,11 +41,17 @@ class CloudflareSyncStatusSensor(CloudflareIpSyncEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
-        """Return the current sync status, or None before the first refresh."""
+        """Return the current sync status, or None before the first refresh.
+
+        When the optional DNS record sync is configured, the sensor only
+        reports "in sync" if the DNS record matches too, so existing alerting
+        on this sensor also covers a broken VPN-endpoint record.
+        """
         data = self.coordinator.data
         if data is None:
             return None
-        return SYNC_STATUS_IN_SYNC if data.in_sync else SYNC_STATUS_OUT_OF_SYNC
+        in_sync = data.in_sync and data.dns_in_sync is not False
+        return SYNC_STATUS_IN_SYNC if in_sync else SYNC_STATUS_OUT_OF_SYNC
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -53,9 +59,19 @@ class CloudflareSyncStatusSensor(CloudflareIpSyncEntity, SensorEntity):
         data = self.coordinator.data
         if data is None:
             return {}
-        return {
+        attributes = {
             "local_ip": data.local_ip,
             "cloudflare_ips": data.cloudflare_ips,
             "last_synced": data.last_synced,
             "last_error": data.last_error,
         }
+        if data.dns_record_name is not None:
+            attributes.update(
+                {
+                    "dns_record_name": data.dns_record_name,
+                    "dns_record_ip": data.dns_record_ip,
+                    "dns_in_sync": data.dns_in_sync,
+                    "dns_last_error": data.dns_last_error,
+                }
+            )
+        return attributes

@@ -17,16 +17,17 @@ from custom_components.cloudflare_ip_sync.api import (
     CloudflareApiError,
     CloudflareAuthError,
     CloudflareBulkOperation,
+    CloudflareDnsRecord,
     CloudflareListItem,
     CloudflareRuleList,
 )
-from custom_components.cloudflare_ip_sync.const import DOMAIN
+from custom_components.cloudflare_ip_sync.const import DNS_RECORD_TTL, DOMAIN
 from custom_components.cloudflare_ip_sync.coordinator import (
     ISSUE_RULE_LIST_MISSING,
     CloudflareIpSyncCoordinator,
 )
 
-from .conftest import SOURCE_ENTITY
+from .conftest import DNS_RECORD, DNS_ZONE_ID, SOURCE_ENTITY
 
 ACCOUNT = "acc123"
 LIST_ID = "list123"
@@ -208,6 +209,156 @@ async def test_present_rule_list_no_repair_issue(
         )
         is None
     )
+
+
+def _dns_record(
+    content: str = "1.2.3.4", *, proxied: bool = False, ttl: int = DNS_RECORD_TTL
+) -> CloudflareDnsRecord:
+    """Build a DNS record for the configured test hostname."""
+    return CloudflareDnsRecord(
+        id="r1", name=DNS_RECORD, type="A", content=content, proxied=proxied, ttl=ttl
+    )
+
+
+async def test_dns_disabled_leaves_dns_fields_none(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Without the DNS option, no DNS call is made and the fields stay None."""
+    hass.states.async_set(SOURCE_ENTITY, "1.2.3.4")
+    client = AsyncMock()
+    client.async_get_list_items.return_value = _items("1.2.3.4")
+
+    coordinator = await _make_coordinator(hass, mock_config_entry, client)
+    state = await coordinator._async_update_data()
+
+    assert state.dns_record_name is None
+    assert state.dns_in_sync is None
+    client.async_get_dns_records.assert_not_called()
+
+
+async def test_dns_in_sync_no_write(
+    hass: HomeAssistant, mock_config_entry_dns: MockConfigEntry
+) -> None:
+    """A DNS record already holding the local IP is left untouched."""
+    hass.states.async_set(SOURCE_ENTITY, "1.2.3.4")
+    client = AsyncMock()
+    client.async_get_list_items.return_value = _items("1.2.3.4")
+    client.async_get_dns_records.return_value = [_dns_record()]
+
+    coordinator = await _make_coordinator(hass, mock_config_entry_dns, client)
+    state = await coordinator._async_update_data()
+
+    assert state.dns_record_name == DNS_RECORD
+    assert state.dns_record_ip == "1.2.3.4"
+    assert state.dns_in_sync is True
+    client.async_get_dns_records.assert_called_once_with(
+        DNS_ZONE_ID, name=DNS_RECORD, record_type="A"
+    )
+    client.async_create_dns_record.assert_not_called()
+    client.async_update_dns_record.assert_not_called()
+
+
+async def test_dns_missing_record_is_created(
+    hass: HomeAssistant, mock_config_entry_dns: MockConfigEntry
+) -> None:
+    """A missing DNS record is created un-proxied with the local IP."""
+    hass.states.async_set(SOURCE_ENTITY, "1.2.3.4")
+    client = AsyncMock()
+    client.async_get_list_items.return_value = _items("1.2.3.4")
+    client.async_get_dns_records.return_value = []
+    client.async_create_dns_record.return_value = _dns_record()
+
+    coordinator = await _make_coordinator(hass, mock_config_entry_dns, client)
+    state = await coordinator._async_update_data()
+
+    assert state.dns_in_sync is True
+    create_kwargs = client.async_create_dns_record.call_args.kwargs
+    assert create_kwargs["name"] == DNS_RECORD
+    assert create_kwargs["content"] == "1.2.3.4"
+    assert create_kwargs["proxied"] is False
+
+
+async def test_dns_stale_or_proxied_record_is_updated(
+    hass: HomeAssistant, mock_config_entry_dns: MockConfigEntry
+) -> None:
+    """A record with the wrong IP (or proxied) is patched back into shape."""
+    hass.states.async_set(SOURCE_ENTITY, "1.2.3.4")
+    client = AsyncMock()
+    client.async_get_list_items.return_value = _items("1.2.3.4")
+    client.async_get_dns_records.return_value = [
+        _dns_record("9.9.9.9", proxied=True)
+    ]
+    client.async_update_dns_record.return_value = _dns_record()
+
+    coordinator = await _make_coordinator(hass, mock_config_entry_dns, client)
+    state = await coordinator._async_update_data()
+
+    assert state.dns_in_sync is True
+    update_kwargs = client.async_update_dns_record.call_args.kwargs
+    assert update_kwargs["content"] == "1.2.3.4"
+    assert update_kwargs["proxied"] is False
+
+
+async def test_dns_failure_reports_but_does_not_break_list_sync(
+    hass: HomeAssistant, mock_config_entry_dns: MockConfigEntry
+) -> None:
+    """DNS errors exhaust retries, notify, and leave the list result intact."""
+    hass.states.async_set(SOURCE_ENTITY, "1.2.3.4")
+    client = AsyncMock()
+    client.async_get_list_items.return_value = _items("1.2.3.4")
+    client.async_get_dns_records.side_effect = CloudflareApiError("boom", code=500)
+
+    coordinator = await _make_coordinator(hass, mock_config_entry_dns, client)
+    with patch(
+        "custom_components.cloudflare_ip_sync.coordinator."
+        "persistent_notification.async_create"
+    ) as notify:
+        state = await coordinator._async_update_data()
+
+    assert state.in_sync is True
+    assert state.dns_in_sync is False
+    assert state.dns_last_error is not None
+    # Default CONF_MAX_RETRIES is 5.
+    assert client.async_get_dns_records.call_count == 5
+    notify.assert_called_once()
+
+
+async def test_dns_auth_error_does_not_trigger_reauth(
+    hass: HomeAssistant, mock_config_entry_dns: MockConfigEntry
+) -> None:
+    """A permissions problem on the zone is reported, not escalated to reauth."""
+    hass.states.async_set(SOURCE_ENTITY, "1.2.3.4")
+    client = AsyncMock()
+    client.async_get_list_items.return_value = _items("1.2.3.4")
+    client.async_get_dns_records.side_effect = CloudflareAuthError("no dns perms")
+
+    coordinator = await _make_coordinator(hass, mock_config_entry_dns, client)
+    with patch(
+        "custom_components.cloudflare_ip_sync.coordinator."
+        "persistent_notification.async_create"
+    ):
+        state = await coordinator._async_update_data()
+
+    assert state.in_sync is True
+    assert state.dns_in_sync is False
+    assert "permission" in state.dns_last_error
+    # Auth errors are not retried.
+    assert client.async_get_dns_records.call_count == 1
+
+
+async def test_dns_skipped_without_local_ip(
+    hass: HomeAssistant, mock_config_entry_dns: MockConfigEntry
+) -> None:
+    """With no usable source IP there is nothing to reconcile DNS against."""
+    hass.states.async_set(SOURCE_ENTITY, "unavailable")
+    client = AsyncMock()
+    client.async_get_list_items.return_value = _items("9.9.9.9")
+
+    coordinator = await _make_coordinator(hass, mock_config_entry_dns, client)
+    state = await coordinator._async_update_data()
+
+    assert state.dns_in_sync is None
+    client.async_get_dns_records.assert_not_called()
 
 
 async def test_last_synced_persists_across_out_of_sync(

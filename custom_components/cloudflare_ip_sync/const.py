@@ -29,9 +29,22 @@ CONF_RECONCILE_INTERVAL: Final = "reconcile_interval"
 DEFAULT_MAX_RETRIES: Final = 5
 DEFAULT_RECONCILE_INTERVAL: Final = 30  # minutes
 
+# Optional DNS record sync (e.g. a VPN endpoint hostname): the record's FQDN
+# plus the zone it lives in, resolved once when the option is saved.
+CONF_DNS_RECORD_NAME: Final = "dns_record_name"
+CONF_DNS_ZONE_ID: Final = "dns_zone_id"
+CONF_DNS_ZONE_NAME: Final = "dns_zone_name"
+
+# The synced DNS record must stay un-proxied (VPN protocols bypass the CDN)
+# and short-lived so clients pick up an IP change quickly.
+DNS_RECORD_TTL: Final = 60  # seconds
+
 # Comment attached to the Rule List item this integration writes, so it's
 # recognizable in the Cloudflare dashboard.
 LIST_ITEM_COMMENT: Final = "Managed by Home Assistant (cloudflare_ip_sync)"
+
+# Same, for the optional DNS record.
+DNS_RECORD_COMMENT: Final = "Managed by Home Assistant (cloudflare_ip_sync)"
 
 # Seconds between polls of an in-progress Cloudflare bulk operation, and the
 # overall budget before giving up on a single sync attempt.

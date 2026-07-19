@@ -42,5 +42,9 @@ async def async_get_config_entry_diagnostics(
                 data.last_synced.isoformat() if data and data.last_synced else None
             ),
             "last_error": data.last_error if data else None,
+            "dns_record_name": data.dns_record_name if data else None,
+            "dns_record_ip": data.dns_record_ip if data else None,
+            "dns_in_sync": data.dns_in_sync if data else None,
+            "dns_last_error": data.dns_last_error if data else None,
         },
     }

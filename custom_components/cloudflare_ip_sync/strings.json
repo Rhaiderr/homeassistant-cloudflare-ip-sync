@@ -61,13 +61,22 @@
         "title": "Sync options",
         "data": {
           "max_retries": "Maximum sync retries",
-          "reconcile_interval": "Reconciliation interval (minutes)"
+          "reconcile_interval": "Reconciliation interval (minutes)",
+          "dns_record_name": "DNS record to keep in sync (optional)"
         },
         "data_description": {
           "max_retries": "How many times to retry a failed synchronization before giving up.",
-          "reconcile_interval": "How often to re-check Cloudflare against the source entity as a safety net."
+          "reconcile_interval": "How often to re-check Cloudflare against the source entity as a safety net.",
+          "dns_record_name": "Full hostname of a DNS record (e.g. vpn.example.com) that should always hold your current public IP, kept un-proxied — useful as a VPN endpoint. The token needs DNS edit permission on the record's zone. Leave empty to disable."
         }
       }
+    },
+    "error": {
+      "dns_zone_not_found": "No zone in this Cloudflare account matches that hostname.",
+      "invalid_auth": "The API token was rejected or lacks the required permissions.",
+      "cannot_connect": "Could not reach Cloudflare. Check your network and try again.",
+      "rate_limit": "Cloudflare rate limit reached. Wait a moment and try again.",
+      "unknown": "An unexpected error occurred."
     }
   },
   "entity": {

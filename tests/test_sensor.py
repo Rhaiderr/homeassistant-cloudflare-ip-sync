@@ -9,6 +9,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.cloudflare_ip_sync.api import (
     BULK_STATUS_COMPLETED,
+    CloudflareApiError,
     CloudflareBulkOperation,
     CloudflareListItem,
 )
@@ -54,3 +55,29 @@ async def test_sensor_out_of_sync_on_write_failure(
     assert state is not None
     assert state.state == "out_of_sync"
     assert state.attributes["last_error"] is not None
+
+
+async def test_sensor_out_of_sync_on_dns_failure(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_config_entry_dns: MockConfigEntry,
+) -> None:
+    """A broken DNS record sync flips the sensor even with the list in sync."""
+    hass.states.async_set(SOURCE_ENTITY, "1.2.3.4")
+    mock_client.async_get_list_items.return_value = [
+        CloudflareListItem(ip="1.2.3.4")
+    ]
+    mock_client.async_get_dns_records.side_effect = CloudflareApiError(
+        "boom", code=500
+    )
+
+    mock_config_entry_dns.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_config_entry_dns.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(ENTITY_ID)
+    assert state is not None
+    assert state.state == "out_of_sync"
+    assert state.attributes["last_error"] is None
+    assert state.attributes["dns_in_sync"] is False
+    assert state.attributes["dns_last_error"] is not None

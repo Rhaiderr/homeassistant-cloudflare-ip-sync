@@ -102,6 +102,9 @@ pointed at your home. The same list can also be referenced in Zero Trust / Acces
    *Account Filter Lists → Edit* reads and writes the Rule List itself. *Account Settings →
    Read* is required for the setup flow to list your accounts; without it, the token validates
    but the account step fails.
+
+   If you plan to use the optional [DNS record sync](#optional-dns-record-sync-vpn-endpoint),
+   also add **Zone → DNS → Edit** scoped to the record's zone.
 4. Under **Account Resources**, choose **Include → <the account that owns your Rule List>**.
 5. Leave **Client IP Address Filtering** empty — your public IP rotates (that's the whole
    point of this integration), so an IP-restricted token would break on the first change.
@@ -181,6 +184,31 @@ Open the integration's **Configure** button to tune:
 | --- | --- | --- |
 | **Maximum sync retries** | 5 | How many times to retry a failed sync (with exponential backoff) before giving up. |
 | **Reconciliation interval** | 30 min | How often to re-check Cloudflare against the source entity, independent of state changes. |
+| **DNS record to keep in sync** | *(empty)* | Optional: the full hostname of a DNS record (e.g. `vpn.example.com`) that should also track your public IP. See below. |
+
+#### Optional: DNS record sync (VPN endpoint)
+
+If your WAF rule locks the proxied hostnames down to your home IP, a VPN back home is
+usually how you get in from outside — and that VPN needs an endpoint hostname that tracks
+the same dynamic IP. Router DDNS services (DuckDNS, TP-Link, ...) update on their own,
+opaque schedule; when they lag behind an IP change, the VPN goes down exactly when the WAF
+rule is already locking you out.
+
+Setting **DNS record to keep in sync** to a hostname in one of your zones (e.g.
+`vpn.example.com`) makes the integration reconcile an **un-proxied** (grey-cloud) `A`/`AAAA`
+record with TTL 60 alongside the Rule List — one detection path, one update path, observable
+from Home Assistant. The record is created if missing and repaired if something re-enables
+the proxy on it (a proxied record would break VPN protocols like WireGuard).
+
+Requirements and behavior:
+
+- The API token additionally needs **Zone → DNS → Edit** on the record's zone.
+- The owning zone is resolved and validated when you save the option.
+- DNS failures never block the Rule List sync; they surface via the sensor's `dns_*`
+  attributes (and flip it to `out_of_sync`) plus a persistent notification.
+- Leave the field empty to disable the feature (the record itself is not deleted).
+- Note the record publicly maps that hostname to your home IP — the same exposure any
+  DDNS hostname already has.
 
 ---
 
@@ -201,6 +229,13 @@ Attributes:
 | `cloudflare_ips` | The IPs currently in the Rule List. |
 | `last_synced` | Timestamp of the last confirmed match. |
 | `last_error` | The last sync error, if any. |
+| `dns_record_name` | *(DNS sync only)* The synced DNS record's hostname. |
+| `dns_record_ip` | *(DNS sync only)* The IP the record currently holds. |
+| `dns_in_sync` | *(DNS sync only)* Whether the record matches the source IP. |
+| `dns_last_error` | *(DNS sync only)* The last DNS sync error, if any. |
+
+With the DNS record sync enabled, the sensor only reports `in_sync` when **both** the Rule
+List and the DNS record match the source IP.
 
 ### Services
 
