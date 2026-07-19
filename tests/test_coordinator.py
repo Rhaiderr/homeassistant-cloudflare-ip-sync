@@ -361,6 +361,42 @@ async def test_dns_skipped_without_local_ip(
     client.async_get_dns_records.assert_not_called()
 
 
+async def test_float_options_from_number_selector_do_not_crash(
+    hass: HomeAssistant, mock_config_entry_dns: MockConfigEntry
+) -> None:
+    """NumberSelector stores floats; retry loops must still work (regression)."""
+    entry = MockConfigEntry(
+        domain=mock_config_entry_dns.domain,
+        title=mock_config_entry_dns.title,
+        unique_id=mock_config_entry_dns.unique_id,
+        data=dict(mock_config_entry_dns.data),
+        options={
+            **mock_config_entry_dns.options,
+            "max_retries": 5.0,
+            "reconcile_interval": 30.0,
+        },
+    )
+    hass.states.async_set(SOURCE_ENTITY, "1.2.3.4")
+    client = AsyncMock()
+    # Both halves need their retry loop: list mismatch and DNS read failure.
+    client.async_get_list_items.return_value = _items("9.9.9.9")
+    client.async_replace_list_items.return_value = "op1"
+    client.async_get_bulk_operation.return_value = _completed()
+    client.async_get_dns_records.side_effect = CloudflareApiError("boom", code=500)
+
+    coordinator = await _make_coordinator(hass, entry, client)
+    with patch(
+        "custom_components.cloudflare_ip_sync.coordinator."
+        "persistent_notification.async_create"
+    ):
+        state = await coordinator._async_update_data()
+
+    assert state.in_sync is False
+    assert state.dns_in_sync is False
+    assert client.async_replace_list_items.call_count == 5
+    assert client.async_get_dns_records.call_count == 5
+
+
 async def test_last_synced_persists_across_out_of_sync(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
