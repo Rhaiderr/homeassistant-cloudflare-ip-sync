@@ -150,8 +150,10 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
         self._account_id: str = entry.data[CONF_ACCOUNT_ID]
         self._list_id: str = entry.data[CONF_LIST_ID]
         self._source_entity_id: str = entry.data[CONF_SOURCE_ENTITY_ID]
-        self._max_retries: int = entry.options.get(
-            CONF_MAX_RETRIES, DEFAULT_MAX_RETRIES
+        # int() guards against NumberSelector floats stored by the options
+        # flow (5.0 would blow up the range() in the retry loops).
+        self._max_retries: int = int(
+            entry.options.get(CONF_MAX_RETRIES, DEFAULT_MAX_RETRIES)
         )
         self._dns_record_name: str | None = entry.options.get(CONF_DNS_RECORD_NAME)
         self._dns_zone_id: str | None = entry.options.get(CONF_DNS_ZONE_ID)

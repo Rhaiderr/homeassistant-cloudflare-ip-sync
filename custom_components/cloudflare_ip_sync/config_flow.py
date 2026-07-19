@@ -286,9 +286,10 @@ class CloudflareIpSyncOptionsFlow(OptionsFlow):
         """
         errors: dict[str, str] = {}
         if user_input is not None:
+            # NumberSelector yields floats; store the ints they represent.
             options = {
-                CONF_MAX_RETRIES: user_input[CONF_MAX_RETRIES],
-                CONF_RECONCILE_INTERVAL: user_input[CONF_RECONCILE_INTERVAL],
+                CONF_MAX_RETRIES: int(user_input[CONF_MAX_RETRIES]),
+                CONF_RECONCILE_INTERVAL: int(user_input[CONF_RECONCILE_INTERVAL]),
             }
             record_name = user_input.get(CONF_DNS_RECORD_NAME, "").strip(". ").lower()
             if not record_name:
