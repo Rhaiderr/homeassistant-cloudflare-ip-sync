@@ -118,6 +118,27 @@ class CloudflareListItem:
 
 
 @dataclass(frozen=True, slots=True)
+class CloudflareZone:
+    """A Cloudflare zone (DNS domain) the token can access."""
+
+    id: str
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class CloudflareDnsRecord:
+    """A DNS record inside a zone (the optional VPN-endpoint sync target)."""
+
+    id: str
+    name: str
+    type: str
+    content: str
+    proxied: bool
+    ttl: int
+    comment: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CloudflareBulkOperation:
     """Status of an asynchronous Rule List item write."""
 
@@ -276,6 +297,90 @@ class CloudflareClient:
             error=result.get("error"),
         )
 
+    async def async_get_zones(self) -> list[CloudflareZone]:
+        """Return every zone the token can access, following page pagination."""
+        zones: list[CloudflareZone] = []
+        page = 1
+        while True:
+            payload = await self._request(
+                "GET", "/zones", params={"per_page": "50", "page": str(page)}
+            )
+            zones.extend(
+                CloudflareZone(id=str(item["id"]), name=str(item.get("name", "")))
+                for item in self._require_list(payload)
+                if item.get("id")
+            )
+            if page >= self._total_pages(payload):
+                return zones
+            page += 1
+
+    async def async_get_dns_records(
+        self, zone_id: str, *, name: str | None = None, record_type: str | None = None
+    ) -> list[CloudflareDnsRecord]:
+        """Return the zone's DNS records, optionally filtered by name/type."""
+        params: dict[str, str] = {"per_page": "100"}
+        if name:
+            params["name"] = name
+        if record_type:
+            params["type"] = record_type
+        payload = await self._request(
+            "GET", f"/zones/{zone_id}/dns_records", params=params
+        )
+        return [
+            self._parse_dns_record(item)
+            for item in self._require_list(payload)
+            if item.get("id")
+        ]
+
+    async def async_create_dns_record(
+        self,
+        zone_id: str,
+        *,
+        name: str,
+        record_type: str,
+        content: str,
+        ttl: int,
+        proxied: bool,
+        comment: str | None = None,
+    ) -> CloudflareDnsRecord:
+        """Create a DNS record and return Cloudflare's view of it."""
+        body: dict[str, Any] = {
+            "name": name,
+            "type": record_type,
+            "content": content,
+            "ttl": ttl,
+            "proxied": proxied,
+        }
+        if comment:
+            body["comment"] = comment
+        payload = await self._request(
+            "POST", f"/zones/{zone_id}/dns_records", json_data=body
+        )
+        return self._parse_dns_record(self._require_result(payload))
+
+    async def async_update_dns_record(
+        self,
+        zone_id: str,
+        record_id: str,
+        *,
+        content: str,
+        ttl: int,
+        proxied: bool,
+        comment: str | None = None,
+    ) -> CloudflareDnsRecord:
+        """Update a DNS record's content/ttl/proxied and return the result."""
+        body: dict[str, Any] = {
+            "content": content,
+            "ttl": ttl,
+            "proxied": proxied,
+        }
+        if comment:
+            body["comment"] = comment
+        payload = await self._request(
+            "PATCH", f"/zones/{zone_id}/dns_records/{record_id}", json_data=body
+        )
+        return self._parse_dns_record(self._require_result(payload))
+
     # -- internals --------------------------------------------------------- #
     async def _request(
         self,
@@ -371,6 +476,30 @@ class CloudflareClient:
                 "Cloudflare response is missing a 'result' list"
             )
         return result
+
+    @staticmethod
+    def _parse_dns_record(raw: dict[str, Any]) -> CloudflareDnsRecord:
+        """Build a typed DNS record from Cloudflare's raw JSON object."""
+        return CloudflareDnsRecord(
+            id=str(raw.get("id", "")),
+            name=str(raw.get("name", "")),
+            type=str(raw.get("type", "")),
+            content=str(raw.get("content", "")),
+            proxied=bool(raw.get("proxied", False)),
+            ttl=int(raw.get("ttl", 1)),
+            comment=raw.get("comment"),
+        )
+
+    @staticmethod
+    def _total_pages(payload: dict[str, Any]) -> int:
+        """Return the total page count from page-based pagination info."""
+        result_info = payload.get("result_info")
+        if not isinstance(result_info, dict):
+            return 1
+        try:
+            return max(int(result_info.get("total_pages", 1)), 1)
+        except (TypeError, ValueError):
+            return 1
 
     @staticmethod
     def _next_cursor(payload: dict[str, Any]) -> str | None:

@@ -15,10 +15,14 @@ from custom_components.cloudflare_ip_sync.api import (
     CloudflareAuthError,
     CloudflareRuleList,
     CloudflareTokenStatus,
+    CloudflareZone,
 )
 from custom_components.cloudflare_ip_sync.const import (
     CONF_ACCOUNT_ID,
     CONF_API_TOKEN,
+    CONF_DNS_RECORD_NAME,
+    CONF_DNS_ZONE_ID,
+    CONF_DNS_ZONE_NAME,
     CONF_LIST_ID,
     CONF_MAX_RETRIES,
     CONF_RECONCILE_INTERVAL,
@@ -164,6 +168,87 @@ async def test_options_flow(
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"] == {CONF_MAX_RETRIES: 3, CONF_RECONCILE_INTERVAL: 15}
+
+
+async def test_options_flow_resolves_dns_zone(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A DNS record name is validated and stored with its owning zone."""
+    mock_config_entry.add_to_hass(hass)
+    mock_client.async_get_zones.return_value = [
+        CloudflareZone(id="z-com", name="example.com"),
+        CloudflareZone(id="z-sub", name="b.example.com"),
+    ]
+
+    result = await hass.config_entries.options.async_init(
+        mock_config_entry.entry_id
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_MAX_RETRIES: 5,
+            CONF_RECONCILE_INTERVAL: 30,
+            CONF_DNS_RECORD_NAME: "VPN.b.example.com.",
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    # Normalized to lowercase without the trailing dot, longest zone wins.
+    assert result["data"][CONF_DNS_RECORD_NAME] == "vpn.b.example.com"
+    assert result["data"][CONF_DNS_ZONE_ID] == "z-sub"
+    assert result["data"][CONF_DNS_ZONE_NAME] == "b.example.com"
+
+
+async def test_options_flow_rejects_unknown_zone(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A hostname outside every accessible zone shows a field error."""
+    mock_config_entry.add_to_hass(hass)
+    mock_client.async_get_zones.return_value = [
+        CloudflareZone(id="z-com", name="example.com")
+    ]
+
+    result = await hass.config_entries.options.async_init(
+        mock_config_entry.entry_id
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_MAX_RETRIES: 5,
+            CONF_RECONCILE_INTERVAL: 30,
+            CONF_DNS_RECORD_NAME: "vpn.other.org",
+        },
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_DNS_RECORD_NAME: "dns_zone_not_found"}
+
+
+async def test_options_flow_empty_dns_name_disables_sync(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Clearing the DNS field drops the stored zone/record options."""
+    mock_config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(
+        mock_config_entry.entry_id
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_MAX_RETRIES: 5,
+            CONF_RECONCILE_INTERVAL: 30,
+            CONF_DNS_RECORD_NAME: "",
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert CONF_DNS_RECORD_NAME not in result["data"]
+    assert CONF_DNS_ZONE_ID not in result["data"]
+    mock_client.async_get_zones.assert_not_called()
 
 
 async def test_reauth_flow_updates_token(

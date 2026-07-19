@@ -30,11 +30,15 @@ from .api import (
     CloudflareConnectionError,
     CloudflareError,
     CloudflareRateLimitError,
+    CloudflareZone,
 )
 from .const import (
     CONF_ACCOUNT_ID,
     CONF_ACCOUNT_NAME,
     CONF_API_TOKEN,
+    CONF_DNS_RECORD_NAME,
+    CONF_DNS_ZONE_ID,
+    CONF_DNS_ZONE_NAME,
     CONF_LIST_ID,
     CONF_LIST_NAME,
     CONF_MAX_RETRIES,
@@ -272,9 +276,35 @@ class CloudflareIpSyncOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage retry count and reconciliation interval."""
+        """Manage retries, reconciliation interval and the DNS record sync.
+
+        The DNS record field takes the FQDN of a record (e.g.
+        ``vpn.example.com``) that should track the source IP alongside the
+        Rule List; leaving it empty disables that sync. The owning zone is
+        resolved and validated here, once, so the coordinator never has to
+        guess it at runtime.
+        """
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            options = {
+                CONF_MAX_RETRIES: user_input[CONF_MAX_RETRIES],
+                CONF_RECONCILE_INTERVAL: user_input[CONF_RECONCILE_INTERVAL],
+            }
+            record_name = user_input.get(CONF_DNS_RECORD_NAME, "").strip(". ").lower()
+            if not record_name:
+                return self.async_create_entry(data=options)
+            try:
+                zone = await self._async_find_zone(record_name)
+            except CloudflareError as err:
+                errors["base"] = _error_key(err)
+            else:
+                if zone is None:
+                    errors[CONF_DNS_RECORD_NAME] = "dns_zone_not_found"
+                else:
+                    options[CONF_DNS_RECORD_NAME] = record_name
+                    options[CONF_DNS_ZONE_ID] = zone.id
+                    options[CONF_DNS_ZONE_NAME] = zone.name
+                    return self.async_create_entry(data=options)
 
         current = self.config_entry.options
         return self.async_show_form(
@@ -302,9 +332,35 @@ class CloudflareIpSyncOptionsFlow(OptionsFlow):
                             mode=selector.NumberSelectorMode.BOX,
                         )
                     ),
+                    vol.Optional(
+                        CONF_DNS_RECORD_NAME,
+                        description={
+                            "suggested_value": current.get(CONF_DNS_RECORD_NAME, "")
+                        },
+                    ): selector.TextSelector(),
                 }
             ),
+            errors=errors,
         )
+
+    async def _async_find_zone(self, record_name: str) -> CloudflareZone | None:
+        """Return the zone that owns ``record_name``, or None if there is none.
+
+        Prefers the longest matching zone name so ``a.b.example.com`` lands in
+        a ``b.example.com`` zone over ``example.com`` when both exist.
+        """
+        client = CloudflareClient(
+            async_get_clientsession(self.hass),
+            self.config_entry.data[CONF_API_TOKEN],
+        )
+        zones = [
+            zone
+            for zone in await client.async_get_zones()
+            if record_name == zone.name or record_name.endswith(f".{zone.name}")
+        ]
+        if not zones:
+            return None
+        return max(zones, key=lambda zone: len(zone.name))
 
 
 def _dropdown(options: list[selector.SelectOptionDict]) -> selector.SelectSelector:

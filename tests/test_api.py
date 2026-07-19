@@ -24,6 +24,7 @@ from custom_components.cloudflare_ip_sync.api import (
 BASE = "https://api.cloudflare.com/client/v4"
 ACCOUNT = "acc123"
 LIST_ID = "list123"
+ZONE = "zone123"
 
 
 def _ok(result: object, **extra: object) -> dict[str, object]:
@@ -244,3 +245,122 @@ async def test_bulk_operation_flags(
         op = await client.async_get_bulk_operation(ACCOUNT, "op1")
     assert op.is_failed is is_failed
     assert op.is_pending is is_pending
+
+
+async def test_get_zones_follows_page_pagination(client: CloudflareClient) -> None:
+    """Zones are collected across page-based pagination."""
+    with aioresponses() as m:
+        m.get(
+            f"{BASE}/zones?page=1&per_page=50",
+            payload=_ok(
+                [{"id": "z1", "name": "example.com"}],
+                result_info={"total_pages": 2},
+            ),
+        )
+        m.get(
+            f"{BASE}/zones?page=2&per_page=50",
+            payload=_ok(
+                [{"id": "z2", "name": "example.org"}],
+                result_info={"total_pages": 2},
+            ),
+        )
+        zones = await client.async_get_zones()
+    assert [(z.id, z.name) for z in zones] == [
+        ("z1", "example.com"),
+        ("z2", "example.org"),
+    ]
+
+
+async def test_get_dns_records_passes_filters(client: CloudflareClient) -> None:
+    """Name/type filters land in the query string and records parse fully."""
+    with aioresponses() as m:
+        m.get(
+            f"{BASE}/zones/{ZONE}/dns_records?name=vpn.example.com&per_page=100&type=A",
+            payload=_ok(
+                [
+                    {
+                        "id": "r1",
+                        "name": "vpn.example.com",
+                        "type": "A",
+                        "content": "1.2.3.4",
+                        "proxied": False,
+                        "ttl": 60,
+                        "comment": "c",
+                    }
+                ]
+            ),
+        )
+        records = await client.async_get_dns_records(
+            ZONE, name="vpn.example.com", record_type="A"
+        )
+    assert len(records) == 1
+    record = records[0]
+    assert record.id == "r1"
+    assert record.content == "1.2.3.4"
+    assert record.proxied is False
+    assert record.ttl == 60
+
+
+async def test_create_dns_record_sends_body(client: CloudflareClient) -> None:
+    """Creating a record posts the full body and parses the result."""
+    with aioresponses() as m:
+        m.post(
+            f"{BASE}/zones/{ZONE}/dns_records",
+            payload=_ok(
+                {
+                    "id": "r1",
+                    "name": "vpn.example.com",
+                    "type": "A",
+                    "content": "1.2.3.4",
+                    "proxied": False,
+                    "ttl": 60,
+                }
+            ),
+        )
+        record = await client.async_create_dns_record(
+            ZONE,
+            name="vpn.example.com",
+            record_type="A",
+            content="1.2.3.4",
+            ttl=60,
+            proxied=False,
+            comment="managed",
+        )
+        request = next(iter(m.requests.values()))[0]
+    assert record.id == "r1"
+    assert request.kwargs["json"] == {
+        "name": "vpn.example.com",
+        "type": "A",
+        "content": "1.2.3.4",
+        "ttl": 60,
+        "proxied": False,
+        "comment": "managed",
+    }
+
+
+async def test_update_dns_record_patches_content(client: CloudflareClient) -> None:
+    """Updating a record patches content/ttl/proxied and parses the result."""
+    with aioresponses() as m:
+        m.patch(
+            f"{BASE}/zones/{ZONE}/dns_records/r1",
+            payload=_ok(
+                {
+                    "id": "r1",
+                    "name": "vpn.example.com",
+                    "type": "A",
+                    "content": "5.6.7.8",
+                    "proxied": False,
+                    "ttl": 60,
+                }
+            ),
+        )
+        record = await client.async_update_dns_record(
+            ZONE, "r1", content="5.6.7.8", ttl=60, proxied=False
+        )
+        request = next(iter(m.requests.values()))[0]
+    assert record.content == "5.6.7.8"
+    assert request.kwargs["json"] == {
+        "content": "5.6.7.8",
+        "ttl": 60,
+        "proxied": False,
+    }

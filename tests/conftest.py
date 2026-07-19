@@ -14,6 +14,9 @@ from custom_components.cloudflare_ip_sync.const import (
     CONF_ACCOUNT_ID,
     CONF_ACCOUNT_NAME,
     CONF_API_TOKEN,
+    CONF_DNS_RECORD_NAME,
+    CONF_DNS_ZONE_ID,
+    CONF_DNS_ZONE_NAME,
     CONF_LIST_ID,
     CONF_LIST_NAME,
     CONF_SOURCE_ENTITY_ID,
@@ -21,6 +24,8 @@ from custom_components.cloudflare_ip_sync.const import (
 )
 
 SOURCE_ENTITY = "sensor.public_ip"
+DNS_RECORD = "vpn.example.com"
+DNS_ZONE_ID = "zone123"
 
 
 @pytest.fixture(autouse=True)
@@ -54,6 +59,22 @@ def mock_config_entry() -> MockConfigEntry:
             CONF_LIST_ID: "list123",
             CONF_LIST_NAME: "casa",
             CONF_SOURCE_ENTITY_ID: SOURCE_ENTITY,
+        },
+    )
+
+
+@pytest.fixture
+def mock_config_entry_dns(mock_config_entry: MockConfigEntry) -> MockConfigEntry:
+    """Return a config entry with the optional DNS record sync enabled."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title=mock_config_entry.title,
+        unique_id=mock_config_entry.unique_id,
+        data=dict(mock_config_entry.data),
+        options={
+            CONF_DNS_RECORD_NAME: DNS_RECORD,
+            CONF_DNS_ZONE_ID: DNS_ZONE_ID,
+            CONF_DNS_ZONE_NAME: "example.com",
         },
     )
 
