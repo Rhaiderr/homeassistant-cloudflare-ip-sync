@@ -22,7 +22,11 @@ from custom_components.cloudflare_ip_sync.api import (
     CloudflareListItem,
     CloudflareRuleList,
 )
-from custom_components.cloudflare_ip_sync.const import DNS_RECORD_TTL, DOMAIN
+from custom_components.cloudflare_ip_sync.const import (
+    CONF_FALLBACK_SOURCE_ENTITY_ID,
+    DNS_RECORD_TTL,
+    DOMAIN,
+)
 from custom_components.cloudflare_ip_sync.coordinator import (
     ISSUE_RULE_LIST_MISSING,
     ISSUE_SOURCE_UNUSABLE,
@@ -503,3 +507,80 @@ async def test_brief_source_outage_does_not_raise_issue(
         await coordinator._async_update_data()
 
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+
+BACKUP_ENTITY = "sensor.myip"
+
+
+@pytest.fixture
+def entry_with_fallback(mock_config_entry: MockConfigEntry) -> MockConfigEntry:
+    """Return a config entry that also has a backup source entity."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title=mock_config_entry.title,
+        unique_id=mock_config_entry.unique_id,
+        data=dict(mock_config_entry.data),
+        options={CONF_FALLBACK_SOURCE_ENTITY_ID: BACKUP_ENTITY},
+    )
+
+
+@pytest.mark.parametrize("primary", ["unavailable", "unknown", "0.0.0.0", "10.0.0.1"])
+async def test_fallback_used_when_primary_unusable(
+    hass: HomeAssistant, entry_with_fallback: MockConfigEntry, primary: str
+) -> None:
+    """A backup IP is synced when the primary has no usable public IP."""
+    hass.states.async_set(SOURCE_ENTITY, primary)
+    hass.states.async_set(BACKUP_ENTITY, "5.6.7.8")
+    client = AsyncMock()
+    client.async_get_list_items.return_value = _items("9.9.9.9")
+    client.async_replace_list_items.return_value = _completed()
+    client.async_get_bulk_operation.return_value = _completed()
+    client.async_get_list_items.side_effect = [_items("9.9.9.9"), _items("5.6.7.8")]
+
+    coordinator = await _make_coordinator(hass, entry_with_fallback, client)
+    state = await coordinator._async_update_data()
+
+    assert state.local_ip == "5.6.7.8"
+    assert state.in_sync is True
+    assert client.async_replace_list_items.call_args.args[2][0].ip == "5.6.7.8"
+
+
+async def test_primary_wins_over_fallback(
+    hass: HomeAssistant, entry_with_fallback: MockConfigEntry
+) -> None:
+    """When both are usable, the primary entity is the one that counts."""
+    hass.states.async_set(SOURCE_ENTITY, "1.2.3.4")
+    hass.states.async_set(BACKUP_ENTITY, "5.6.7.8")
+    client = AsyncMock()
+    client.async_get_list_items.return_value = _items("1.2.3.4")
+
+    coordinator = await _make_coordinator(hass, entry_with_fallback, client)
+    state = await coordinator._async_update_data()
+
+    assert state.local_ip == "1.2.3.4"
+    client.async_replace_list_items.assert_not_called()
+
+
+async def test_unusable_fallback_does_not_rescue(
+    hass: HomeAssistant, entry_with_fallback: MockConfigEntry
+) -> None:
+    """A bad backup value is rejected like a bad primary: nothing is written."""
+    hass.states.async_set(SOURCE_ENTITY, "0.0.0.0")
+    hass.states.async_set(BACKUP_ENTITY, "192.168.1.5")
+    client = AsyncMock()
+    client.async_get_list_items.return_value = _items("9.9.9.9")
+
+    coordinator = await _make_coordinator(hass, entry_with_fallback, client)
+    state = await coordinator._async_update_data()
+
+    assert state.local_ip is None
+    client.async_replace_list_items.assert_not_called()
+
+
+async def test_fallback_change_triggers_refresh(
+    hass: HomeAssistant, entry_with_fallback: MockConfigEntry
+) -> None:
+    """Both source entities are tracked by the state-change listener."""
+    client = AsyncMock()
+    coordinator = await _make_coordinator(hass, entry_with_fallback, client)
+    assert coordinator._source_entity_ids == [SOURCE_ENTITY, BACKUP_ENTITY]

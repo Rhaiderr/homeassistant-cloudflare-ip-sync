@@ -258,6 +258,11 @@ Download diagnostics from the integration's device page for troubleshooting — 
 integration version, config (with the **API token redacted**), coordinator health, and the
 current sync state.
 
+**Backup source entity (optional).** In the integration's options you can pick a second sensor
+(e.g. the built-in *DNS IP* integration, which asks a public resolver for your IP). It is only
+consulted when the main source entity has no usable public IP; when both are usable, the main
+one always wins.
+
 ### Repairs
 
 If the configured Rule List can no longer be found in your Cloudflare account (deleted, or the

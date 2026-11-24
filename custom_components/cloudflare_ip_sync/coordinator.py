@@ -62,6 +62,7 @@ from .const import (
     CONF_ACCOUNT_ID,
     CONF_DNS_RECORD_NAME,
     CONF_DNS_ZONE_ID,
+    CONF_FALLBACK_SOURCE_ENTITY_ID,
     CONF_LIST_ID,
     CONF_MAX_RETRIES,
     CONF_RECONCILE_INTERVAL,
@@ -155,6 +156,9 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
         self._account_id: str = entry.data[CONF_ACCOUNT_ID]
         self._list_id: str = entry.data[CONF_LIST_ID]
         self._source_entity_id: str = entry.data[CONF_SOURCE_ENTITY_ID]
+        self._fallback_entity_id: str | None = (
+            entry.options.get(CONF_FALLBACK_SOURCE_ENTITY_ID) or None
+        )
         # int() guards against NumberSelector floats stored by the options
         # flow (5.0 would blow up the range() in the retry loops).
         self._max_retries: int = int(
@@ -173,6 +177,14 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
         self._source_unusable_since: datetime | None = None
         self._last_synced: datetime | None = None
 
+    @property
+    def _source_entity_ids(self) -> list[str]:
+        """Primary source entity, followed by the fallback one if configured."""
+        ids = [self._source_entity_id]
+        if self._fallback_entity_id and self._fallback_entity_id not in ids:
+            ids.append(self._fallback_entity_id)
+        return ids
+
     @callback
     def async_setup_listeners(self) -> None:
         """Track the source entity so IP changes trigger a debounced refresh."""
@@ -180,7 +192,7 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
         assert entry is not None
         entry.async_on_unload(
             async_track_state_change_event(
-                self.hass, [self._source_entity_id], self._handle_source_event
+                self.hass, self._source_entity_ids, self._handle_source_event
             )
         )
 
@@ -519,7 +531,24 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
         ir.async_delete_issue(self.hass, DOMAIN, self._rule_list_missing_issue_id)
 
     def _read_source_ip(self) -> str | None:
-        """Return the source entity's state if it is a usable public IP.
+        """Return the first usable public IP among the source entities.
+
+        The primary entity wins whenever it holds a usable IP; the optional
+        fallback is only consulted when it does not.
+        """
+        for entity_id in self._source_entity_ids:
+            if (ip := self._read_entity_ip(entity_id)) is not None:
+                if entity_id != self._source_entity_id:
+                    _LOGGER.debug(
+                        "Primary source %s has no usable IP; using fallback %s",
+                        self._source_entity_id,
+                        entity_id,
+                    )
+                return ip
+        return None
+
+    def _read_entity_ip(self, entity_id: str) -> str | None:
+        """Return an entity's state if it is a usable public IP.
 
         Besides unparsable states, non-global addresses are rejected too:
         routers commonly report ``0.0.0.0`` while the WAN link is down, and a
@@ -527,7 +556,7 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
         IP. Writing either to the Rule List (or the DNS record) would lock the
         user out instead of letting them in, so they count as "no IP".
         """
-        state = self.hass.states.get(self._source_entity_id)
+        state = self.hass.states.get(entity_id)
         if state is None or state.state in _UNAVAILABLE_STATES:
             return None
         value = state.state.strip()
@@ -536,14 +565,14 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
         except ValueError:
             _LOGGER.warning(
                 "Source entity %s state %r is not a valid IP address",
-                self._source_entity_id,
+                entity_id,
                 state.state,
             )
             return None
         if not address.is_global:
             _LOGGER.warning(
                 "Source entity %s state %s is not a public IP address; ignoring it",
-                self._source_entity_id,
+                entity_id,
                 value,
             )
             return None
@@ -573,7 +602,7 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
             is_fixable=False,
             severity=ir.IssueSeverity.WARNING,
             translation_key=ISSUE_SOURCE_UNUSABLE,
-            translation_placeholders={"entity_id": self._source_entity_id},
+            translation_placeholders={"entity_id": " / ".join(self._source_entity_ids)},
         )
 
     @staticmethod

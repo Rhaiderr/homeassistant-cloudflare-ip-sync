@@ -39,6 +39,7 @@ from .const import (
     CONF_DNS_RECORD_NAME,
     CONF_DNS_ZONE_ID,
     CONF_DNS_ZONE_NAME,
+    CONF_FALLBACK_SOURCE_ENTITY_ID,
     CONF_LIST_ID,
     CONF_LIST_NAME,
     CONF_MAX_RETRIES,
@@ -291,6 +292,8 @@ class CloudflareIpSyncOptionsFlow(OptionsFlow):
                 CONF_MAX_RETRIES: int(user_input[CONF_MAX_RETRIES]),
                 CONF_RECONCILE_INTERVAL: int(user_input[CONF_RECONCILE_INTERVAL]),
             }
+            if fallback := user_input.get(CONF_FALLBACK_SOURCE_ENTITY_ID):
+                options[CONF_FALLBACK_SOURCE_ENTITY_ID] = fallback
             record_name = user_input.get(CONF_DNS_RECORD_NAME, "").strip(". ").lower()
             if not record_name:
                 return self.async_create_entry(data=options)
@@ -332,6 +335,16 @@ class CloudflareIpSyncOptionsFlow(OptionsFlow):
                             unit_of_measurement="min",
                             mode=selector.NumberSelectorMode.BOX,
                         )
+                    ),
+                    vol.Optional(
+                        CONF_FALLBACK_SOURCE_ENTITY_ID,
+                        description={
+                            "suggested_value": current.get(
+                                CONF_FALLBACK_SOURCE_ENTITY_ID
+                            )
+                        },
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="sensor")
                     ),
                     vol.Optional(
                         CONF_DNS_RECORD_NAME,
