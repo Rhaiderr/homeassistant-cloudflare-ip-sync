@@ -264,6 +264,10 @@ If the configured Rule List can no longer be found in your Cloudflare account (d
 token lost access), a repair issue appears under **Settings → System → Repairs** prompting you
 to reconfigure. It clears automatically once the list is reachable again.
 
+If the source entity has not held a usable public IP for more than 15 minutes (unavailable,
+not an IP, or a non-public address — see below), a warning repair issue appears too, since
+nothing can be synced in the meantime. It clears itself as soon as a valid public IP returns.
+
 ---
 
 ## How it works
@@ -271,6 +275,9 @@ to reconfigure. It clears automatically once the list is reachable again.
 The integration follows Home Assistant's `DataUpdateCoordinator` pattern:
 
 1. It reads your public IP from the source entity and the current Rule List from Cloudflare.
+   Only **public** (globally routable) addresses are accepted: `0.0.0.0` (which many routers
+   report while the WAN link is down), private ranges and CGNAT (`100.64.0.0/10`) are ignored,
+   because writing them to the list would lock you out instead of letting you in.
 2. If they already match (compared as normalized networks, so `1.2.3.4` and `1.2.3.4/32` are
    equal), it does nothing.
 3. If they differ, it replaces the Rule List with your current IP, waits for Cloudflare's

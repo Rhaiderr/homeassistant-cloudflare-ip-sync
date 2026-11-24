@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -24,6 +25,8 @@ from custom_components.cloudflare_ip_sync.api import (
 from custom_components.cloudflare_ip_sync.const import DNS_RECORD_TTL, DOMAIN
 from custom_components.cloudflare_ip_sync.coordinator import (
     ISSUE_RULE_LIST_MISSING,
+    ISSUE_SOURCE_UNUSABLE,
+    SOURCE_UNUSABLE_GRACE,
     CloudflareIpSyncCoordinator,
 )
 
@@ -414,3 +417,89 @@ async def test_last_synced_persists_across_out_of_sync(
     second = await coordinator._async_update_data()
     assert second.in_sync is False
     assert second.last_synced == first.last_synced
+
+
+@pytest.mark.parametrize(
+    "bad_ip",
+    ["0.0.0.0", "192.168.0.10", "10.0.0.1", "100.64.1.2", "127.0.0.1", "fe80::1"],
+)
+async def test_non_public_source_ip_is_never_written(
+    hass: HomeAssistant, mock_config_entry_dns: MockConfigEntry, bad_ip: str
+) -> None:
+    """A WAN-down 0.0.0.0, private or CGNAT IP must not reach Cloudflare."""
+    hass.states.async_set(SOURCE_ENTITY, bad_ip)
+    client = AsyncMock()
+    client.async_get_list_items.return_value = _items("9.9.9.9")
+
+    coordinator = await _make_coordinator(hass, mock_config_entry_dns, client)
+    state = await coordinator._async_update_data()
+
+    assert state.local_ip is None
+    assert state.in_sync is False
+    client.async_replace_list_items.assert_not_called()
+    client.async_create_dns_record.assert_not_called()
+    client.async_update_dns_record.assert_not_called()
+
+
+async def test_source_unusable_issue_after_grace_and_clears(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """No usable IP past the grace period raises a Repair issue; an IP clears it."""
+    issue_id = f"{DOMAIN}_{mock_config_entry.entry_id}_{ISSUE_SOURCE_UNUSABLE}"
+    issue_reg = ir.async_get(hass)
+    client = AsyncMock()
+    client.async_get_list_items.return_value = _items("1.2.3.4")
+    coordinator = await _make_coordinator(hass, mock_config_entry, client)
+
+    hass.states.async_set(SOURCE_ENTITY, "unavailable")
+    start = dt_util.utcnow()
+    with patch(
+        "custom_components.cloudflare_ip_sync.coordinator.dt_util.utcnow",
+        return_value=start,
+    ):
+        await coordinator._async_update_data()
+    # Within the grace period: no issue yet.
+    assert issue_reg.async_get_issue(DOMAIN, issue_id) is None
+
+    hass.states.async_set(SOURCE_ENTITY, "0.0.0.0")
+    with patch(
+        "custom_components.cloudflare_ip_sync.coordinator.dt_util.utcnow",
+        return_value=start + SOURCE_UNUSABLE_GRACE,
+    ):
+        await coordinator._async_update_data()
+    issue = issue_reg.async_get_issue(DOMAIN, issue_id)
+    assert issue is not None
+    assert issue.translation_placeholders == {"entity_id": SOURCE_ENTITY}
+
+    hass.states.async_set(SOURCE_ENTITY, "1.2.3.4")
+    await coordinator._async_update_data()
+    assert issue_reg.async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_brief_source_outage_does_not_raise_issue(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """An outage that recovers within the grace period never raises the issue."""
+    issue_id = f"{DOMAIN}_{mock_config_entry.entry_id}_{ISSUE_SOURCE_UNUSABLE}"
+    client = AsyncMock()
+    client.async_get_list_items.return_value = _items("1.2.3.4")
+    coordinator = await _make_coordinator(hass, mock_config_entry, client)
+
+    start = dt_util.utcnow()
+    hass.states.async_set(SOURCE_ENTITY, "unavailable")
+    with patch(
+        "custom_components.cloudflare_ip_sync.coordinator.dt_util.utcnow",
+        return_value=start,
+    ):
+        await coordinator._async_update_data()
+    hass.states.async_set(SOURCE_ENTITY, "1.2.3.4")
+    await coordinator._async_update_data()
+    # A later outage restarts the grace clock instead of reusing the old start.
+    hass.states.async_set(SOURCE_ENTITY, "unavailable")
+    with patch(
+        "custom_components.cloudflare_ip_sync.coordinator.dt_util.utcnow",
+        return_value=start + SOURCE_UNUSABLE_GRACE * 2,
+    ):
+        await coordinator._async_update_data()
+
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
