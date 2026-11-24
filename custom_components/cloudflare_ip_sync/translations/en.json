@@ -94,6 +94,10 @@
     "rule_list_missing": {
       "title": "Cloudflare Rule List no longer exists",
       "description": "The Rule List \"{list_name}\" could not be found in your Cloudflare account anymore. It may have been deleted, or the API token lost access to it. Remove and reconfigure this integration, pointing it at an existing Rule List, to resume syncing."
+    },
+    "source_unusable": {
+      "title": "Source entity has no usable public IP",
+      "description": "The source entity `{entity_id}` has not reported a valid public IP address for a while (it is unavailable, not an IP, or a private/CGNAT/0.0.0.0 address). Nothing is being synced to Cloudflare in the meantime, so the next change of your public IP would not be picked up. Check the integration providing `{entity_id}`, or reconfigure this integration with a different source entity. This issue clears itself once a valid public IP shows up again."
     }
   },
   "services": {

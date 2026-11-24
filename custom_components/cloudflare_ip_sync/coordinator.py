@@ -87,6 +87,11 @@ _UNAVAILABLE_STATES = (STATE_UNAVAILABLE, STATE_UNKNOWN, "")
 # the Cloudflare account (as opposed to a transient read/write failure).
 ISSUE_RULE_LIST_MISSING = "rule_list_missing"
 
+# Repair issue raised when the source entity hasn't held a usable public IP
+# for longer than SOURCE_UNUSABLE_GRACE (nothing can be synced meanwhile).
+ISSUE_SOURCE_UNUSABLE = "source_unusable"
+SOURCE_UNUSABLE_GRACE = timedelta(minutes=15)
+
 
 class _SyncVerificationFailed(Exception):
     """A replace + bulk-operation + re-read cycle didn't converge."""
@@ -162,6 +167,10 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
         self._rule_list_missing_issue_id = (
             f"{DOMAIN}_{entry.entry_id}_{ISSUE_RULE_LIST_MISSING}"
         )
+        self._source_unusable_issue_id = (
+            f"{DOMAIN}_{entry.entry_id}_{ISSUE_SOURCE_UNUSABLE}"
+        )
+        self._source_unusable_since: datetime | None = None
         self._last_synced: datetime | None = None
 
     @callback
@@ -195,6 +204,7 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
         afterwards, reported through the ``dns_*`` fields of the state.
         """
         local_ip = self._read_source_ip()
+        self._async_track_source_availability(local_ip)
         try:
             items = await self.client.async_get_list_items(
                 self._account_id, self._list_id
@@ -509,12 +519,20 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
         ir.async_delete_issue(self.hass, DOMAIN, self._rule_list_missing_issue_id)
 
     def _read_source_ip(self) -> str | None:
-        """Return the source entity's state if it is a valid IP address."""
+        """Return the source entity's state if it is a usable public IP.
+
+        Besides unparsable states, non-global addresses are rejected too:
+        routers commonly report ``0.0.0.0`` while the WAN link is down, and a
+        private/CGNAT address means the entity isn't seeing the real public
+        IP. Writing either to the Rule List (or the DNS record) would lock the
+        user out instead of letting them in, so they count as "no IP".
+        """
         state = self.hass.states.get(self._source_entity_id)
         if state is None or state.state in _UNAVAILABLE_STATES:
             return None
+        value = state.state.strip()
         try:
-            ipaddress.ip_address(state.state.strip())
+            address = ipaddress.ip_address(value)
         except ValueError:
             _LOGGER.warning(
                 "Source entity %s state %r is not a valid IP address",
@@ -522,7 +540,41 @@ class CloudflareIpSyncCoordinator(DataUpdateCoordinator[SyncState]):
                 state.state,
             )
             return None
-        return state.state.strip()
+        if not address.is_global:
+            _LOGGER.warning(
+                "Source entity %s state %s is not a public IP address; ignoring it",
+                self._source_entity_id,
+                value,
+            )
+            return None
+        return value
+
+    def _async_track_source_availability(self, local_ip: str | None) -> None:
+        """Raise a Repair issue when the source has had no usable IP for long.
+
+        Without a usable IP nothing gets synced, so the next real IP change
+        would silently lock the user out. A short grace period absorbs
+        startup and brief WAN drops; the check runs on every refresh, so the
+        issue appears at most one reconcile interval after the grace expires.
+        """
+        if local_ip is not None:
+            self._source_unusable_since = None
+            ir.async_delete_issue(self.hass, DOMAIN, self._source_unusable_issue_id)
+            return
+        now = dt_util.utcnow()
+        if self._source_unusable_since is None:
+            self._source_unusable_since = now
+        if now - self._source_unusable_since < SOURCE_UNUSABLE_GRACE:
+            return
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            self._source_unusable_issue_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_SOURCE_UNUSABLE,
+            translation_placeholders={"entity_id": self._source_entity_id},
+        )
 
     @staticmethod
     def _is_in_sync(local_ip: str | None, cloudflare_ips: list[str]) -> bool:
