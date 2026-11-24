@@ -25,6 +25,10 @@ CONF_SOURCE_ENTITY_ID: Final = "source_entity_id"
 
 # Config entry option keys and their defaults.
 CONF_MAX_RETRIES: Final = "max_retries"
+# Optional second source entity, consulted only when the primary one has no
+# usable public IP (e.g. a DNS-based "what is my IP" sensor as a backup for a
+# router-reported one).
+CONF_FALLBACK_SOURCE_ENTITY_ID: Final = "fallback_source_entity_id"
 CONF_RECONCILE_INTERVAL: Final = "reconcile_interval"
 DEFAULT_MAX_RETRIES: Final = 5
 DEFAULT_RECONCILE_INTERVAL: Final = 30  # minutes

@@ -23,6 +23,7 @@ from custom_components.cloudflare_ip_sync.const import (
     CONF_DNS_RECORD_NAME,
     CONF_DNS_ZONE_ID,
     CONF_DNS_ZONE_NAME,
+    CONF_FALLBACK_SOURCE_ENTITY_ID,
     CONF_LIST_ID,
     CONF_MAX_RETRIES,
     CONF_RECONCILE_INTERVAL,
@@ -271,3 +272,24 @@ async def test_reauth_flow_updates_token(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
     assert mock_config_entry.data[CONF_API_TOKEN] == "fresh-token"
+
+
+async def test_options_flow_stores_fallback_source(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A backup source entity is saved in the options when provided."""
+    mock_config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_MAX_RETRIES: 3,
+            CONF_RECONCILE_INTERVAL: 15,
+            CONF_FALLBACK_SOURCE_ENTITY_ID: "sensor.myip",
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_FALLBACK_SOURCE_ENTITY_ID] == "sensor.myip"

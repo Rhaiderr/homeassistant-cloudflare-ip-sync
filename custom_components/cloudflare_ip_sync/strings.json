@@ -62,12 +62,14 @@
         "data": {
           "max_retries": "Maximum sync retries",
           "reconcile_interval": "Reconciliation interval (minutes)",
-          "dns_record_name": "DNS record to keep in sync (optional)"
+          "dns_record_name": "DNS record to keep in sync (optional)",
+          "fallback_source_entity_id": "Backup source entity (optional)"
         },
         "data_description": {
           "max_retries": "How many times to retry a failed synchronization before giving up.",
           "reconcile_interval": "How often to re-check Cloudflare against the source entity as a safety net.",
-          "dns_record_name": "Full hostname of a DNS record (e.g. vpn.example.com) that should always hold your current public IP, kept un-proxied — useful as a VPN endpoint. The token needs DNS edit permission on the record's zone. Leave empty to disable."
+          "dns_record_name": "Full hostname of a DNS record (e.g. vpn.example.com) that should always hold your current public IP, kept un-proxied — useful as a VPN endpoint. The token needs DNS edit permission on the record's zone. Leave empty to disable.",
+          "fallback_source_entity_id": "Sensor holding your public IP, used only when the main source entity has no usable public IP (unavailable, 0.0.0.0, private...). A DNS-based sensor such as the DNS IP integration makes a good backup for a router-reported IP."
         }
       }
     },
